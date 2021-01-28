@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Models;
 
 [ApiController]
 [Route("YeelightInfo")]
@@ -17,6 +18,10 @@ public class YeelightInfoController : ControllerBase
     private readonly string _targetIp;
     private readonly int _targetPort;
 
+    /// <summary>
+    /// Crée une nouvelle instance de <see cref="YeelightInfoController"/>
+    /// </summary>
+    /// <param name="configuration">Configuration courante</param>
     public YeelightInfoController(IConfiguration configuration)
     {
         _configuration = configuration;
@@ -24,27 +29,52 @@ public class YeelightInfoController : ControllerBase
         _targetPort = _configuration.GetValue<int>("Yeelight:Port");
     }
 
+    /// <summary>
+    /// Eteint le dispositif
+    /// </summary>
+    /// <param name="cancellationToken">Jeton d'annulation asynchrone</param>
+
     [HttpGet]
     [Route("/PowerOff")]
     public async Task<YeelightInfo> PowerOff(CancellationToken cancellationToken)
     {
         IList<YeelightInfo> responseEntities = new List<YeelightInfo>();
         responseEntities = await SendCommandAsync("set_power", new List<object> { "off", "smooth", 500 }, cancellationToken);
-        return responseEntities.FirstOrDefault(r => r.Result.Any());
+        return responseEntities.FirstOrDefault();
     }
+
+    /// <summary>
+    /// Allume le dispositif
+    /// </summary>
+    /// <param name="cancellationToken">Jeton d'annulation asynchrone</param>
+
     [HttpGet]
     [Route("/PowerOn")]
     public async Task<YeelightInfo> PowerOn(CancellationToken cancellationToken)
     {
         IList<YeelightInfo> responseEntities = new List<YeelightInfo>();
         responseEntities = await SendCommandAsync("set_power", new List<object> { "on", "smooth", 500 }, cancellationToken);
-        return responseEntities.FirstOrDefault(r => r.Result.Any() || r.Params.Any());
+        return responseEntities.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Retourne l'ensemble des informations 
+    /// </summary>
+    /// <param name="cancellationToken">Jeton d'annulation asynchrone</param>
+
+    [HttpGet]
+    [Route("/Status")]
+    public async Task<YeelightInfo> GetStatus(CancellationToken cancellationToken)
+    {
+        IList<YeelightInfo> responseEntities = new List<YeelightInfo>();
+        var parameters = new List<object>();
+        parameters.AddRange(Parameters.GlobalParameters.All.Union(Parameters.BackParameters.All).Union(Parameters.FrontParameters.All));
+        responseEntities = await SendCommandAsync("get_prop", parameters, cancellationToken);
+        return responseEntities.FirstOrDefault();
     }
 
     private async Task<IList<YeelightInfo>> SendCommandAsync(string methodName, IList<object> commandParams, CancellationToken cancellationToken)
     {
-        System.Console.WriteLine("Start SendCommand");
-
         var responseEntities = new List<YeelightInfo>();
         using (TcpClient listener = new TcpClient(_targetIp, _targetPort))
         {
@@ -63,10 +93,6 @@ public class YeelightInfoController : ControllerBase
 
             {
                 s.Socket.Blocking = false;
-
-
-                System.Console.WriteLine("Listening");
-
                 while (responseEntities is null || !responseEntities.Any())
                 {
 
@@ -99,10 +125,7 @@ public class YeelightInfoController : ControllerBase
                     // Trigger the initial read.
                     listener.Client.BeginReceive(buffer, 0, 100, SocketFlags.Partial, callback, null);
 
-
-
                     Thread.Sleep(200);
-
                     var sw = new StreamWriter(s);
                     sw.AutoFlush = true;
                     await sw.WriteLineAsync(commandText);
@@ -113,12 +136,17 @@ public class YeelightInfoController : ControllerBase
                     }
 
                     var responseString = sb.ToString();
+                    var responseEntity = System.Text.Json.JsonSerializer.Deserialize<YeelightInfo>(
+                                                                                     responseString,
+                                                                                       new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
 
-                    responseEntities.Add(System.Text.Json.JsonSerializer.Deserialize<YeelightInfo>(
-                                                                 responseString,
-                                                                   new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                                                                              );
 
-                                                          ));
+                    if (responseEntity.Result.Any() && !responseEntity.Params.Any())
+                    {
+                        responseEntity.Params = responseEntity.Result.Select((value, idx) => new { key = commandParams[idx].ToString(), v = value }).ToDictionary(x => x.key, x => (object)x.v);
+                    }
+                    responseEntities.Add(responseEntity);
 
                 }
 
