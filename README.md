@@ -42,3 +42,7 @@ Méthode et paramètres associés :
 | bg_adjust_bright |        2         | int(percentage)  | int(duration)  |                         |               |
 | bg_adjust_ct     |        2         | int(percentage)  | int(duration)  |                         |               |
 | bg_adjust_color  |        2         | int(percentage)  | int(duration)  |                         |               |
+
+
+
+![.NET](https://github.com/jbval/Yeelight.net/workflows/.NET/badge.svg?branch=master)
